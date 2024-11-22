@@ -43,11 +43,42 @@ export async function handler(event) {
 }
 
 async function verifyToken(authHeader) {
-  const token = getToken(authHeader)
-  const jwt = jsonwebtoken.decode(token, { complete: true })
+  try {
+    if (!authHeader) {
+      throw new Error('No authentication header provided')
+    }
 
-  // TODO: Implement token verification
-  return undefined;
+    const token = getToken(authHeader)
+    if (!token) {
+      throw new Error('No token found in the authentication header')
+    }
+
+    const jwt = jsonwebtoken.decode(token, { complete: true })
+    if (!jwt) {
+      throw new Error('Invalid token')
+    }
+
+    const response = await Axios.get(jwksUrl)
+    const keys = response.data.keys
+    if (!keys || keys.length === 0) {
+      throw new Error('JWKS endpoint has no keys')
+    }
+
+    const signingKey = keys.find(key => key.kid === jwt.header.kid)
+    if (!signingKey) {
+      throw new Error('No signing key found for the token')
+    }
+
+    const pemData = signingKey.x5c[0]
+    const cert = `-----BEGIN CERTIFICATE-----\n${pemData}\n-----END CERTIFICATE-----\n`
+    const verifiedToken = jsonwebtoken.verify(token, cert, { algorithms: ['RS256'] })
+
+    logger.info('Verified token: ', verifiedToken)
+    return verifiedToken
+  } catch (error) {
+    logger.error('Token verification failed: ', error)
+    throw new Error('Token verification failed')
+  }
 }
 
 function getToken(authHeader) {
